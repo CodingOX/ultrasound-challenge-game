@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { 
   Clock, Send, SkipForward, Flame, Video, Activity,
-  Play, Pause, StepForward, Gauge, Zap
+  Play, Pause, StepForward, Gauge, Zap, CheckCircle2
 } from 'lucide-vue-next';
 
 import { sound } from '../utils/audio';
@@ -194,6 +194,9 @@ function handleSubmit() {
 function fillCorrectAndSubmit() {
   if (!currentQuestion.value) return;
   userAnswer.value = currentQuestion.value.standardAnswer;
+  if (isScanningPhase.value) {
+    handleVideoEnded();
+  }
   handleSubmit();
 }
 
@@ -401,22 +404,41 @@ onUnmounted(() => {
           </svg>
         </div>
 
-        <!-- 视频状态角标 -->
-        <div class="absolute top-3 left-3 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 border border-slate-700 text-xs text-slate-300 backdrop-blur-md z-30">
+        <!-- 视频状态角标 (仅扫查期显示) -->
+        <div v-if="isScanningPhase" class="absolute top-3 left-3 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 border border-slate-700 text-xs text-slate-300 backdrop-blur-md z-30">
           <Video class="w-3.5 h-3.5 text-cyan-400" />
-          <span v-if="isScanningPhase" class="text-cyan-400 font-bold flex items-center">
+          <span class="text-cyan-400 font-bold flex items-center">
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping mr-1"></span>
             {{ isPaused ? '切面暂停辨识中' : '真实超声扫查播放中 (限播1次)...' }}
           </span>
-          <span v-else class="text-amber-400 font-bold flex items-center">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1"></span>
-            扫查结束 · 15s极速答题中！
-          </span>
+        </div>
+
+        <!-- 扫查结束遮罩蒙层 (核心需求1：播放完毕显示蒙层引导下方作答，防止重播) -->
+        <div
+          v-if="!isScanningPhase"
+          class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 z-30 transition-all duration-300"
+        >
+          <div class="w-13 h-13 rounded-2xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 mb-3 shadow-lg shadow-cyan-500/20">
+            <CheckCircle2 class="w-7 h-7 text-cyan-300 animate-pulse" />
+          </div>
+          <h4 class="text-base sm:text-lg font-black text-slate-100 mb-1 drop-shadow">
+            切面扫查已完成 · 15秒极速答题进行中
+          </h4>
+          <p class="text-xs sm:text-sm text-cyan-300 font-medium max-w-md leading-relaxed">
+            请根据视频播放内容在下方作答框输入相应疾病诊断
+          </p>
+          <div class="mt-3 flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono text-amber-400">
+            <Clock class="w-3.5 h-3.5 animate-pulse" />
+            <span>作答倒计时剩余 {{ timeLeft }} 秒</span>
+          </div>
         </div>
       </div>
 
-      <!-- 专业超声精细化微调控制栏 (慢放 / 暂停 / 单帧微步进 / 提前答题) -->
-      <div class="px-4 py-2.5 bg-slate-900/90 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <!-- 专业超声精细化微调控制栏 (核心需求1：播放完毕后隐藏工具栏，仅在扫查阶段显示) -->
+      <div 
+        v-if="isScanningPhase"
+        class="px-4 py-2.5 bg-slate-900/90 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs"
+      >
         <div class="flex items-center space-x-2">
           <!-- 暂停/继续 -->
           <button
@@ -463,19 +485,19 @@ onUnmounted(() => {
 
         <!-- 提前结束扫查直接开启 15s 答题 -->
         <button
-          v-if="isScanningPhase"
           type="button"
           @click="handleVideoEnded"
           class="px-3 py-1 rounded-lg bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-400/50 text-cyan-300 font-bold flex items-center space-x-1 transition-all active:scale-95"
+          title="提前辨识出病变，直接激活答题倒计时"
         >
           <Zap class="w-3.5 h-3.5 text-cyan-400" />
-          <span>辨识完毕 · 开启15s极速秒答 »</span>
+          <span>提前辨识完毕 · 开启15s秒答 »</span>
         </button>
       </div>
     </div>
 
 
-    <!-- 纯文本秒答输入栏 (极致聚焦) -->
+    <!-- 纯文本秒答输入栏 (核心需求3：扫查中不可用，播放完毕后解锁输入) -->
     <div class="p-4 rounded-2xl bg-slate-900/95 border border-cyan-500/40 glass-panel shadow-2xl">
       <form @submit.prevent="handleSubmit" class="space-y-2">
         <div class="flex items-center gap-2">
@@ -486,13 +508,19 @@ onUnmounted(() => {
               v-model="userAnswer"
               type="text"
               autocomplete="off"
-              placeholder="请输入超声诊断结果 / 异常结构名称 (按 Enter 秒提交)..."
-              class="w-full pl-4 pr-10 py-3 rounded-xl bg-slate-950 border-2 border-cyan-500/40 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 text-sm sm:text-base font-semibold text-slate-100 placeholder-slate-500 outline-none transition-all shadow-inner"
+              :disabled="isScanningPhase"
+              :placeholder="isScanningPhase ? '⏳ 正在进行切面视频扫查，播放完毕后自动开启作答...' : '请根据视频播放内容输入诊断结果 (按 Enter 提交)...'"
+              :class="[
+                'w-full pl-4 pr-10 py-3 rounded-xl border-2 text-sm sm:text-base font-semibold outline-none transition-all shadow-inner',
+                isScanningPhase
+                  ? 'bg-slate-950/40 border-slate-800 text-slate-500 placeholder-slate-600 cursor-not-allowed'
+                  : 'bg-slate-950 border-cyan-500/40 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 text-slate-100 placeholder-slate-500'
+              ]"
             />
             <button
               type="submit"
-              :disabled="!userAnswer.trim()"
-              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 disabled:opacity-30 transition-all active:scale-95"
+              :disabled="isScanningPhase || !userAnswer.trim()"
+              class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-95"
             >
               <Send class="w-4 h-4" />
             </button>
@@ -501,8 +529,8 @@ onUnmounted(() => {
           <!-- 操作按钮组 -->
           <button
             type="submit"
-            :disabled="!userAnswer.trim()"
-            class="px-5 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs sm:text-sm shadow-md shadow-cyan-500/30 disabled:opacity-40 transition-all active:scale-95 whitespace-nowrap"
+            :disabled="isScanningPhase || !userAnswer.trim()"
+            class="px-5 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs sm:text-sm shadow-md shadow-cyan-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 whitespace-nowrap"
           >
             提交 (Enter)
           </button>
@@ -510,7 +538,8 @@ onUnmounted(() => {
           <button
             type="button"
             @click="handleSkip"
-            class="px-3 py-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-all whitespace-nowrap"
+            :disabled="isScanningPhase"
+            class="px-3 py-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all whitespace-nowrap"
             title="放弃本题"
           >
             <SkipForward class="w-3.5 h-3.5" />

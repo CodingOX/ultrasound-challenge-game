@@ -61,15 +61,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 2. 视频四角显著官方防伪标识与选手身份 -->
-    <div class="absolute bottom-2 left-3 flex items-center space-x-2 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-cyan-500/30 text-[10px] text-cyan-300 font-mono shadow-lg">
+    <!-- 2. 官方防伪标识与选手身份（置于右上角，彻底避开底部操作工具栏） -->
+    <div class="absolute top-2.5 right-3 flex items-center space-x-2 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-lg border border-cyan-500/30 text-[10px] text-cyan-300 font-mono shadow-lg">
       <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
       <span>受保密监控：{{ userName }}（{{ hospital }}）</span>
-    </div>
-
-    <!-- 3. 右下角时间与防伪码 -->
-    <div class="absolute bottom-2 right-3 text-[9px] font-mono text-slate-400/80 bg-black/50 px-2 py-0.5 rounded">
-      APBD-SEC-{{ randomKey }}
+      <span class="text-slate-500 text-[9px] border-l border-slate-700 pl-1.5">ID:{{ randomKey }}</span>
     </div>
   </div>
 </template>
