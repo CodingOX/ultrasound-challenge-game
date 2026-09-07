@@ -59,18 +59,26 @@ function startQuestion() {
     }
   });
 
-  // 如果有真实视频元素，播放一次
-  if (videoEl.value) {
-    videoEl.value.currentTime = 0;
-    videoEl.value.play().catch(() => {});
-  }
-
-  // 模拟切面扫查 4 秒后结束
-  setTimeout(() => {
-    isVideoPlaying.value = false;
-  }, 4500);
+  // 真实视频播放控制
+  nextTick(() => {
+    if (videoEl.value) {
+      videoEl.value.currentTime = 0;
+      videoEl.value.play().then(() => {
+        isVideoPlaying.value = true;
+      }).catch((e) => {
+        console.log('Autoplay handled', e);
+        isVideoPlaying.value = false;
+      });
+    } else {
+      // 模拟切面扫查 4 秒后结束
+      setTimeout(() => {
+        isVideoPlaying.value = false;
+      }, 4500);
+    }
+  });
 
   // 启动高精度计时器 (每 100ms 更新)
+
   if (timer) clearInterval(timer);
   timer = window.setInterval(() => {
     timeLeft.value = Number((timeLeft.value - 0.1).toFixed(1));
@@ -275,8 +283,12 @@ onUnmounted(() => {
           :src="currentQuestion.videoUrl"
           playsinline
           muted
-          class="w-full h-full object-contain"
+          autoplay
+          @ended="isVideoPlaying = false"
+          class="w-full h-full object-contain cursor-pointer"
+          @click="videoEl?.paused ? videoEl?.play() : videoEl?.pause()"
         ></video>
+
 
         <!-- 否则渲染专业级超声动态扫查模拟声束 -->
         <div v-else class="absolute inset-0 flex items-center justify-center opacity-90">
