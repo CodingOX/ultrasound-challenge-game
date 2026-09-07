@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #06b6d4;
+    --primary-glow: rgba(6, 182, 212, 0.45);
+    --secondary: #6366f1;
+    --accent-gold: #f59e0b;
+    /* 升级为通透的高端医疗蓝灰色底色，告别死黑 */
+    --bg-dark: #0b132b;
+    --bg-dark-secondary: #1c2541;
+    --card-dark: rgba(28, 37, 65, 0.85);
+    --border-glow: rgba(56, 189, 248, 0.35);
+  }
+
+  body {
+    background-color: var(--bg-dark);
+    /* 渐变深海蓝背景 */
+    background-image: 
+      radial-gradient(circle at 50% 0%, rgba(30, 58, 138, 0.35) 0%, transparent 60%),
+      radial-gradient(circle at 100% 100%, rgba(14, 116, 144, 0.2) 0%, transparent 50%),
+      radial-gradient(circle at 0% 100%, rgba(67, 56, 202, 0.2) 0%, transparent 50%);
+    background-attachment: fixed;
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+  }
+}
+
+/* 动态医学超声声束网格背景 */
+.bg-cyber-grid {
+  background-size: 48px 48px;
+  background-image: 
+    linear-gradient(to right, rgba(56, 189, 248, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(56, 189, 248, 0.05) 1px, transparent 1px);
+}
+
+/* 辉光效果 */
+.glow-cyan {
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.4);
+}
+
+.glow-gold {
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.45);
+}
+
+.glow-purple {
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+}
+
+.glow-red {
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.5);
+}
+
+/* 高通透度玻璃拟态卡片 */
+.glass-panel {
+  background: rgba(21, 32, 59, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+}
+
+.glass-panel-interactive {
+  background: rgba(21, 32, 59, 0.78);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-interactive:hover {
+  border-color: rgba(6, 182, 212, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 35px -10px rgba(6, 182, 212, 0.35);
+}
+
+/* 超声心电 ECG 动态走线动画 */
+@keyframes ecgMove {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-ecg {
+  animation: ecgMove 4s linear infinite;
+}
+
+/* 脉冲心跳动效 */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+.animate-heartbeat {
+  animation: heartbeat 1.2s ease-in-out infinite;
+}
+
+/* 连击 Combo 浮现动画 */
+@keyframes comboPop {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-combo {
+  animation: comboPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* 超声扇形扫查声束光带 */
+@keyframes sectorScan {
+  0% { transform: rotate(-35deg); }
+  50% { transform: rotate(35deg); }
+  100% { transform: rotate(-35deg); }
+}
+
+.animate-sector-scan {
+  animation: sectorScan 2.4s ease-in-out infinite;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.7);
+}
