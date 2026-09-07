@@ -199,6 +199,7 @@ function handleChangeCategory() {
         :level="selectedLevel"
         :userProfile="userProfile"
         @complete="handleQuizComplete"
+        @restart="handleRestart"
       />
 
 

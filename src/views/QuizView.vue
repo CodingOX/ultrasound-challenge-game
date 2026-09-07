@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { 
-  Clock, Send, SkipForward, Flame, Video, Activity,
-  Play, Pause, StepForward, Gauge, Zap, CheckCircle2
+  Clock, Send, SkipForward, Flame, Video, Activity, 
+  CheckCircle2, RotateCcw, AlertTriangle
 } from 'lucide-vue-next';
 
 import { sound } from '../utils/audio';
@@ -20,6 +20,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'complete', results: { records: AnswerRecord[]; totalScore: number; totalTimeSpentSec: number }): void;
+  (e: 'restart'): void;
 }>();
 
 const currentIndex = ref(0);
@@ -28,12 +29,11 @@ const inputRef = ref<HTMLInputElement | null>(null);
 
 // 核心状态：是否处于扫查观察阶段 (true = 视频扫查中不扣计时，false = 15s极速答题倒计时中)
 const isScanningPhase = ref(true);
-
-// 视频精细化播放控制
-const playbackRate = ref<number>(1.0); // 1.0 或 0.5 慢放
-const isPaused = ref(false);
 const isVideoPlaying = ref(false);
 const videoEl = ref<HTMLVideoElement | null>(null);
+
+// 中途重开确认弹窗状态
+const showRestartConfirm = ref(false);
 
 // 单题 15 秒倒计时 (精确到 0.1 秒)
 const TIME_LIMIT = 15.0;
@@ -52,63 +52,18 @@ const progressPercent = computed(() => ((currentIndex.value + 1) / props.questio
 const isTimeCritical = computed(() => !isScanningPhase.value && timeLeft.value <= 5.0);
 
 /**
- * 切换 0.5X 慢放与 1.0X 正常速度
- */
-function toggleSlowMotion() {
-  sound.playClick();
-  playbackRate.value = playbackRate.value === 1.0 ? 0.5 : 1.0;
-  if (videoEl.value) {
-    videoEl.value.playbackRate = playbackRate.value;
-  }
-}
-
-/**
- * 暂停 / 继续播放
- */
-function togglePlayPause() {
-  sound.playClick();
-  if (!videoEl.value) return;
-  if (videoEl.value.paused) {
-    videoEl.value.play();
-    isPaused.value = false;
-  } else {
-    videoEl.value.pause();
-    isPaused.value = true;
-  }
-}
-
-/**
- * 单帧步进 (+0.15s)
- */
-function stepFrameForward() {
-  sound.playClick();
-  if (!videoEl.value) return;
-  videoEl.value.pause();
-  isPaused.value = true;
-  videoEl.value.currentTime = Math.min(videoEl.value.duration || 15, videoEl.value.currentTime + 0.15);
-}
-
-/**
- * 启动当前题目 (阶段 1：视频扫查阶段)
+ * 启动当前题目 (阶段 1：视频扫查阶段，常速播放1遍，禁止暂停与慢放)
  */
 function startQuestion() {
   isScanningPhase.value = true;
   timeLeft.value = TIME_LIMIT;
   questionStartTime = Date.now();
   userAnswer.value = '';
-  isPaused.value = false;
-  playbackRate.value = 1.0;
 
   // 清除旧计时器，扫查阶段暂不扣除 15s 倒计时
   if (timer) clearInterval(timer);
 
-  nextTick(() => {
-    if (inputRef.value) {
-      inputRef.value.focus();
-    }
-  });
-
-  // 视频播放初始化
+  // 视频播放初始化：重置为 0 开始单遍播放
   nextTick(() => {
     if (videoEl.value) {
       videoEl.value.currentTime = 0;
@@ -119,7 +74,7 @@ function startQuestion() {
         isVideoPlaying.value = false;
       });
     } else {
-      // 模拟切面扫查 4 秒后自动结束
+      // 备用：模拟切面扫查 4 秒后自动结束
       setTimeout(() => {
         handleVideoEnded();
       }, 4500);
@@ -128,7 +83,7 @@ function startQuestion() {
 }
 
 /**
- * 视频播放结束（或选手点击跳过视频扫查），正式启动【阶段 2：15秒极速答题倒计时】
+ * 视频播放自然结束，正式启动【阶段 2：15秒极速答题倒计时】
  */
 function handleVideoEnded() {
   if (!isScanningPhase.value) return; // 避免重复触发
@@ -165,19 +120,21 @@ function handleVideoEnded() {
   }, 100);
 }
 
-
 function handleTimeout() {
   sound.playTimeout();
   recordAnswer('', false, true);
 }
 
+/**
+ * 跳过本题：全流程（扫查期与答题期）随时立即可用，无需等待
+ */
 function handleSkip() {
   sound.playClick();
   recordAnswer('', false, true);
 }
 
 function handleSubmit() {
-  if (!userAnswer.value.trim()) return;
+  if (!userAnswer.value.trim() || isScanningPhase.value) return;
   sound.playSubmit();
 
   const isCorrect = evaluateAnswer(userAnswer.value, currentQuestion.value);
@@ -223,8 +180,6 @@ function passAllWithPerfectScore() {
 function recordAnswer(ans: string, isCorrect: boolean, isSkipped: boolean) {
   if (timer) clearInterval(timer);
 
-
-
   const timeSpentMs = Date.now() - questionStartTime;
   answerRecords.value.push({
     questionId: currentQuestion.value.id,
@@ -257,6 +212,24 @@ function finishQuiz() {
   });
 }
 
+// 中途重新开局处理
+function triggerRestart() {
+  sound.playClick();
+  showRestartConfirm.value = true;
+}
+
+function confirmRestart() {
+  if (timer) clearInterval(timer);
+  showRestartConfirm.value = false;
+  sound.playClick();
+  emit('restart');
+}
+
+function cancelRestart() {
+  sound.playClick();
+  showRestartConfirm.value = false;
+}
+
 onMounted(() => {
   startQuestion();
 });
@@ -271,8 +244,8 @@ onUnmounted(() => {
     <!-- 顶部状态栏：HUD 科技仪表盘 -->
     <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-cyan-500/30 glass-panel shadow-lg mb-4 relative overflow-hidden">
       <div class="flex items-center justify-between gap-3">
-        <!-- 题号与连击 -->
-        <div class="flex items-center space-x-3">
+        <!-- 左侧：题号、连击与重开按钮 -->
+        <div class="flex items-center space-x-2.5">
           <div class="px-3 py-1 rounded-xl bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-mono font-bold text-sm">
             Q.{{ currentIndex + 1 }} <span class="text-xs text-slate-500">/ {{ questions.length }}</span>
           </div>
@@ -284,9 +257,20 @@ onUnmounted(() => {
             <Flame class="w-3.5 h-3.5 fill-current" />
             <span>COMBO × {{ comboCount }}!</span>
           </div>
+
+          <!-- 放弃本轮 / 重新开局按钮 (考生发挥失常时可随时重新开局) -->
+          <button
+            type="button"
+            @click="triggerRestart"
+            class="flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-300 text-xs font-medium transition-all active:scale-95"
+            title="发挥失常？点击可放弃当前轮次并重新开局"
+          >
+            <RotateCcw class="w-3 h-3 text-slate-400" />
+            <span>放弃本轮·重新开局</span>
+          </button>
         </div>
 
-        <!-- 两阶段动态状态指示：扫查中 vs 15s极速答题倒计时 (核心需求) -->
+        <!-- 中间：两阶段动态状态指示 (扫查中 vs 15s极速答题倒计时) -->
         <div class="flex items-center space-x-2">
           <!-- 阶段一：视频扫查中 -->
           <div
@@ -312,8 +296,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-
-        <!-- 监考微缩视频窗 -->
+        <!-- 右侧：监考微缩视频窗 -->
         <div class="flex items-center space-x-2">
           <CameraModal :miniMode="true" />
         </div>
@@ -330,7 +313,7 @@ onUnmounted(() => {
 
     <!-- 核心超声视频主视窗 (带 HUD 边框 + 物理深度标尺 + 多普勒色阶 + 动态防盗水印) -->
     <div v-if="currentQuestion" class="relative rounded-3xl overflow-hidden border-2 border-cyan-400/50 bg-slate-950 shadow-2xl shadow-cyan-900/60 mb-4 group">
-      <!-- 题目切面名称与诊断问题（置顶独立横幅，确保超声声束与解剖结构不被遮挡） -->
+      <!-- 题目切面名称与诊断问题（置顶独立横幅，确保超声声束与解剖结构完全不被遮挡） -->
       <div class="px-4 py-2.5 bg-slate-900/95 border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 z-30 relative backdrop-blur-md">
         <div class="flex items-center space-x-2.5 flex-1 min-w-0">
           <div class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-cyan-950/90 border border-cyan-500/40 text-cyan-300 text-xs font-mono shrink-0">
@@ -367,9 +350,8 @@ onUnmounted(() => {
         <span class="text-[7px] font-mono text-slate-400 scale-90">cm/s</span>
       </div>
 
-      <!-- 超声切面主视窗 -->
+      <!-- 超声切面主视窗 (常速单遍播放，禁止暂停与慢放，确保考核公正) -->
       <div class="relative w-full aspect-video max-h-[380px] bg-black flex items-center justify-center overflow-hidden">
-        <!-- 如果配置了真实视频则播放真实视频 -->
         <video
           v-if="currentQuestion.videoUrl"
           ref="videoEl"
@@ -378,26 +360,21 @@ onUnmounted(() => {
           muted
           autoplay
           @ended="handleVideoEnded"
-          class="w-full h-full object-contain cursor-pointer"
-          @click="togglePlayPause"
+          class="w-full h-full object-contain pointer-events-none select-none"
         ></video>
 
-        <!-- 否则渲染专业级超声动态扫查模拟声束 -->
+        <!-- 备用：若无视频则渲染动态声束模拟 -->
         <div v-else class="absolute inset-0 flex items-center justify-center opacity-90">
-          <!-- 凸阵探头弧形声束网格 -->
           <div class="w-80 h-80 sm:w-96 sm:h-96 border-b-2 border-cyan-400/50 rounded-full bg-gradient-to-t from-cyan-950/60 to-transparent relative overflow-hidden shadow-inner">
-            <!-- 扇形超声扫查声束光带 -->
             <div
               v-if="isVideoPlaying"
               class="w-full h-full absolute inset-0 bg-gradient-to-tr from-cyan-400/35 via-transparent to-transparent animate-[spin_2s_linear_infinite] origin-bottom"
             ></div>
-
-            <!-- 超声斑点回波底纹 -->
             <div class="absolute inset-0 bg-radial from-transparent via-cyan-950/30 to-black/85"></div>
           </div>
         </div>
 
-        <!-- 3. 底部：ECG 动态心电导联图腾走线 -->
+        <!-- 3. 底部：ECG 动态心电走线 -->
         <div class="absolute bottom-1 inset-x-0 h-6 flex items-center justify-center pointer-events-none z-20 opacity-70">
           <svg class="w-64 h-5 text-emerald-400 animate-pulse" viewBox="0 0 200 20" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M0 10 L40 10 L45 3 L50 18 L55 2 L60 14 L65 10 L100 10 L140 10 L145 3 L150 18 L155 2 L160 14 L165 10 L200 10" />
@@ -405,102 +382,41 @@ onUnmounted(() => {
         </div>
 
         <!-- 视频状态角标 (仅扫查期显示) -->
-        <div v-if="isScanningPhase" class="absolute top-3 left-3 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 border border-slate-700 text-xs text-slate-300 backdrop-blur-md z-30">
+        <div v-if="isScanningPhase" class="absolute top-3 left-3 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 border border-slate-700 text-xs text-slate-300 backdrop-blur-md z-30 pointer-events-none select-none">
           <Video class="w-3.5 h-3.5 text-cyan-400" />
           <span class="text-cyan-400 font-bold flex items-center">
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping mr-1"></span>
-            {{ isPaused ? '切面暂停辨识中' : '真实超声扫查播放中 (限播1次)...' }}
+            真实超声切面扫查中 (单遍连贯播放)...
           </span>
         </div>
 
-        <!-- 扫查结束遮罩蒙层 (核心需求1：播放完毕显示蒙层引导下方作答，防止重播) -->
+        <!-- 扫查结束遮罩蒙层 (播放完毕立即覆盖，引导下方作答，防止重复刷视频) -->
         <div
           v-if="!isScanningPhase"
-          class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 z-30 transition-all duration-300"
+          class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 z-30 transition-all duration-300 select-none"
         >
-          <div class="w-13 h-13 rounded-2xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 mb-3 shadow-lg shadow-cyan-500/20">
+          <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 mb-3 shadow-lg shadow-cyan-500/20">
             <CheckCircle2 class="w-7 h-7 text-cyan-300 animate-pulse" />
           </div>
           <h4 class="text-base sm:text-lg font-black text-slate-100 mb-1 drop-shadow">
             切面扫查已完成 · 15秒极速答题进行中
           </h4>
           <p class="text-xs sm:text-sm text-cyan-300 font-medium max-w-md leading-relaxed">
-            请根据视频播放内容在下方作答框输入相应疾病诊断
+            请根据刚才视频播放内容在下方作答框输入相应疾病诊断
           </p>
-          <div class="mt-3 flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono text-amber-400">
+          <div class="mt-3 flex items-center space-x-2 px-3.5 py-1 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-mono text-amber-400">
             <Clock class="w-3.5 h-3.5 animate-pulse" />
-            <span>作答倒计时剩余 {{ timeLeft }} 秒</span>
+            <span>作答倒计时剩余 {{ timeLeft.toFixed(1) }} 秒</span>
           </div>
         </div>
-      </div>
-
-      <!-- 专业超声精细化微调控制栏 (核心需求1：播放完毕后隐藏工具栏，仅在扫查阶段显示) -->
-      <div 
-        v-if="isScanningPhase"
-        class="px-4 py-2.5 bg-slate-900/90 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs"
-      >
-        <div class="flex items-center space-x-2">
-          <!-- 暂停/继续 -->
-          <button
-            type="button"
-            @click="togglePlayPause"
-            :class="[
-              'px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center space-x-1 transition-all',
-              isPaused 
-                ? 'bg-amber-950 border-amber-500 text-amber-300' 
-                : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-cyan-400'
-            ]"
-          >
-            <Play v-if="isPaused" class="w-3.5 h-3.5 fill-current" />
-            <Pause v-else class="w-3.5 h-3.5" />
-            <span>{{ isPaused ? '继续播放' : '暂停' }}</span>
-          </button>
-
-          <!-- 0.5X 慢放切换 -->
-          <button
-            type="button"
-            @click="toggleSlowMotion"
-            :class="[
-              'px-2.5 py-1 rounded-lg border text-xs font-mono font-bold flex items-center space-x-1 transition-all',
-              playbackRate === 0.5
-                ? 'bg-cyan-950 border-cyan-400 text-cyan-300 glow-cyan'
-                : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600'
-            ]"
-          >
-            <Gauge class="w-3.5 h-3.5 text-cyan-400" />
-            <span>{{ playbackRate === 0.5 ? '0.5X 慢放中' : '1.0X 常速' }}</span>
-          </button>
-
-          <!-- 单帧步进 (+0.15s) -->
-          <button
-            type="button"
-            @click="stepFrameForward"
-            class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white flex items-center space-x-1 transition-all"
-            title="逐帧微调 (+0.15s)"
-          >
-            <StepForward class="w-3.5 h-3.5" />
-            <span>单帧步进</span>
-          </button>
-        </div>
-
-        <!-- 提前结束扫查直接开启 15s 答题 -->
-        <button
-          type="button"
-          @click="handleVideoEnded"
-          class="px-3 py-1 rounded-lg bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-400/50 text-cyan-300 font-bold flex items-center space-x-1 transition-all active:scale-95"
-          title="提前辨识出病变，直接激活答题倒计时"
-        >
-          <Zap class="w-3.5 h-3.5 text-cyan-400" />
-          <span>提前辨识完毕 · 开启15s秒答 »</span>
-        </button>
       </div>
     </div>
 
 
-    <!-- 纯文本秒答输入栏 (核心需求3：扫查中不可用，播放完毕后解锁输入) -->
+    <!-- 纯文本秒答输入栏 (模式 1：扫查中全神贯注观察置灰不可用，播放完毕后启动倒计时并激活输入) -->
     <div class="p-4 rounded-2xl bg-slate-900/95 border border-cyan-500/40 glass-panel shadow-2xl">
-      <form @submit.prevent="handleSubmit" class="space-y-2">
-        <div class="flex items-center gap-2">
+      <form @submit.prevent="handleSubmit" class="space-y-3">
+        <div class="flex items-center gap-2.5">
           <!-- 文本输入框 -->
           <div class="relative flex-1">
             <input
@@ -509,7 +425,7 @@ onUnmounted(() => {
               type="text"
               autocomplete="off"
               :disabled="isScanningPhase"
-              :placeholder="isScanningPhase ? '⏳ 正在进行切面视频扫查，播放完毕后自动开启作答...' : '请根据视频播放内容输入诊断结果 (按 Enter 提交)...'"
+              :placeholder="isScanningPhase ? '⏳ 动态切面扫查中，请全神贯注观察，播完开启作答...' : '请根据切面特征输入诊断结果 (按 Enter 秒提交)...'"
               :class="[
                 'w-full pl-4 pr-10 py-3 rounded-xl border-2 text-sm sm:text-base font-semibold outline-none transition-all shadow-inner',
                 isScanningPhase
@@ -526,7 +442,7 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <!-- 操作按钮组 -->
+          <!-- 提交按钮 -->
           <button
             type="submit"
             :disabled="isScanningPhase || !userAnswer.trim()"
@@ -535,14 +451,15 @@ onUnmounted(() => {
             提交 (Enter)
           </button>
 
+          <!-- 醒目中文跳过按钮：全流程立即可用，绝不禁用！ -->
           <button
             type="button"
             @click="handleSkip"
-            :disabled="isScanningPhase"
-            class="px-3 py-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all whitespace-nowrap"
-            title="放弃本题"
+            class="px-4 py-3 rounded-xl bg-slate-800 hover:bg-amber-950/80 border border-slate-700 hover:border-amber-500/60 text-xs sm:text-sm font-bold text-slate-300 hover:text-amber-300 flex items-center space-x-1.5 transition-all whitespace-nowrap active:scale-95 shadow-sm"
+            title="放弃本题，直接进入下一题"
           >
-            <SkipForward class="w-3.5 h-3.5" />
+            <SkipForward class="w-4 h-4 text-amber-400" />
+            <span>⏩ 跳过本题 (放弃)</span>
           </button>
         </div>
 
@@ -569,6 +486,44 @@ onUnmounted(() => {
         </div>
       </form>
     </div>
+
+    <!-- 放弃本轮 · 重新开局二次确认弹窗 -->
+    <div
+      v-if="showRestartConfirm"
+      class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    >
+      <div class="w-full max-w-sm rounded-2xl bg-slate-900 border border-red-500/40 p-5 shadow-2xl space-y-4 animate-scale-up">
+        <div class="flex items-center space-x-3 text-red-400">
+          <div class="p-2 rounded-xl bg-red-950/80 border border-red-500/30">
+            <AlertTriangle class="w-6 h-6 text-red-400" />
+          </div>
+          <div>
+            <h4 class="font-bold text-base text-slate-100">确认放弃本轮吗？</h4>
+            <p class="text-xs text-slate-400 mt-0.5">本轮成绩将不计入天梯榜</p>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-300 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+          如果您感觉发挥失常或未看清切面，可以随时重新开局。重新开始将消耗一次挑战机会并生成新的一组随机题目。
+        </p>
+
+        <div class="flex items-center justify-end space-x-2 pt-2">
+          <button
+            type="button"
+            @click="cancelRestart"
+            class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all"
+          >
+            继续答题
+          </button>
+          <button
+            type="button"
+            @click="confirmRestart"
+            class="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-all active:scale-95"
+          >
+            确认放弃并重开
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
-
