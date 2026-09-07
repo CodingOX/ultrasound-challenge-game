@@ -1,4 +1,7 @@
 import type { Category, CategoryId, DifficultyConfig, DifficultyLevel, Question } from '../types';
+import realUltrasoundVideo from '../assets/videos/real_ultrasound_berry.mp4';
+
+export const DEFAULT_REAL_ULTRASOUND_VIDEO = realUltrasoundVideo;
 
 // 三大赛道定义
 export const CATEGORIES: Category[] = [
@@ -277,6 +280,11 @@ export const QUESTION_POOL: Question[] = [
   },
 ];
 
+// 核心要求：题库中所有题目均统一使用真实 Berry 综合征超声切面视频作为标准模板
+QUESTION_POOL.forEach((q) => {
+  q.videoUrl = DEFAULT_REAL_ULTRASOUND_VIDEO;
+});
+
 /**
  * 根据赛道与难度抽取题目（10道题）
  * 若池子不足则智能混合同赛道临近难度，确保挑战趣味与丰富度
@@ -298,5 +306,9 @@ export function getQuestionsForQuiz(categoryId: CategoryId, level: DifficultyLev
     ...shuffle(otherCategory),
   ];
 
-  return combined.slice(0, count);
+  return combined.slice(0, count).map((q) => ({
+    ...q,
+    videoUrl: DEFAULT_REAL_ULTRASOUND_VIDEO,
+  }));
 }
+

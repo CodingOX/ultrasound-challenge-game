@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { Clock, Send, SkipForward, Flame, Video, Activity } from 'lucide-vue-next';
+import { 
+  Clock, Send, SkipForward, Flame, Video, Activity,
+  Play, Pause, StepForward, Gauge, Zap
+} from 'lucide-vue-next';
 
 import { sound } from '../utils/audio';
 import { evaluateAnswer } from '../utils/scoring';
@@ -23,6 +26,15 @@ const currentIndex = ref(0);
 const userAnswer = ref('');
 const inputRef = ref<HTMLInputElement | null>(null);
 
+// 核心状态：是否处于扫查观察阶段 (true = 视频扫查中不扣计时，false = 15s极速答题倒计时中)
+const isScanningPhase = ref(true);
+
+// 视频精细化播放控制
+const playbackRate = ref<number>(1.0); // 1.0 或 0.5 慢放
+const isPaused = ref(false);
+const isVideoPlaying = ref(false);
+const videoEl = ref<HTMLVideoElement | null>(null);
+
 // 单题 15 秒倒计时 (精确到 0.1 秒)
 const TIME_LIMIT = 15.0;
 const timeLeft = ref(TIME_LIMIT);
@@ -33,52 +45,104 @@ let questionStartTime = 0;
 const answerRecords = ref<AnswerRecord[]>([]);
 const comboCount = ref(0);
 
-// 视频单次播放状态
-const isVideoPlaying = ref(false);
-const videoEl = ref<HTMLVideoElement | null>(null);
-
 const currentQuestion = computed(() => props.questions[currentIndex.value] || null);
 const progressPercent = computed(() => ((currentIndex.value + 1) / props.questions.length) * 100);
 
-// 危险警报状态 (<= 5秒)
-const isTimeCritical = computed(() => timeLeft.value <= 5.0);
+// 危险警报状态 (<= 5秒且在答题阶段)
+const isTimeCritical = computed(() => !isScanningPhase.value && timeLeft.value <= 5.0);
 
 /**
- * 启动当前题目的 15 秒倒计时与视频播放
+ * 切换 0.5X 慢放与 1.0X 正常速度
+ */
+function toggleSlowMotion() {
+  sound.playClick();
+  playbackRate.value = playbackRate.value === 1.0 ? 0.5 : 1.0;
+  if (videoEl.value) {
+    videoEl.value.playbackRate = playbackRate.value;
+  }
+}
+
+/**
+ * 暂停 / 继续播放
+ */
+function togglePlayPause() {
+  sound.playClick();
+  if (!videoEl.value) return;
+  if (videoEl.value.paused) {
+    videoEl.value.play();
+    isPaused.value = false;
+  } else {
+    videoEl.value.pause();
+    isPaused.value = true;
+  }
+}
+
+/**
+ * 单帧步进 (+0.15s)
+ */
+function stepFrameForward() {
+  sound.playClick();
+  if (!videoEl.value) return;
+  videoEl.value.pause();
+  isPaused.value = true;
+  videoEl.value.currentTime = Math.min(videoEl.value.duration || 15, videoEl.value.currentTime + 0.15);
+}
+
+/**
+ * 启动当前题目 (阶段 1：视频扫查阶段)
  */
 function startQuestion() {
+  isScanningPhase.value = true;
   timeLeft.value = TIME_LIMIT;
   questionStartTime = Date.now();
   userAnswer.value = '';
-  isVideoPlaying.value = true;
+  isPaused.value = false;
+  playbackRate.value = 1.0;
 
-  // 聚焦输入框
+  // 清除旧计时器，扫查阶段暂不扣除 15s 倒计时
+  if (timer) clearInterval(timer);
+
   nextTick(() => {
     if (inputRef.value) {
       inputRef.value.focus();
     }
   });
 
-  // 真实视频播放控制
+  // 视频播放初始化
   nextTick(() => {
     if (videoEl.value) {
       videoEl.value.currentTime = 0;
+      videoEl.value.playbackRate = 1.0;
       videoEl.value.play().then(() => {
         isVideoPlaying.value = true;
-      }).catch((e) => {
-        console.log('Autoplay handled', e);
+      }).catch(() => {
         isVideoPlaying.value = false;
       });
     } else {
-      // 模拟切面扫查 4 秒后结束
+      // 模拟切面扫查 4 秒后自动结束
       setTimeout(() => {
-        isVideoPlaying.value = false;
+        handleVideoEnded();
       }, 4500);
     }
   });
+}
 
-  // 启动高精度计时器 (每 100ms 更新)
+/**
+ * 视频播放结束（或选手点击跳过视频扫查），正式启动【阶段 2：15秒极速答题倒计时】
+ */
+function handleVideoEnded() {
+  if (!isScanningPhase.value) return; // 避免重复触发
+  isScanningPhase.value = false;
+  isVideoPlaying.value = false;
+  sound.playSubmit(); // 提示音：答题阶段开启！
 
+  nextTick(() => {
+    if (inputRef.value) {
+      inputRef.value.focus();
+    }
+  });
+
+  // 正式启动高精度 15 秒极速倒计时 (每 100ms 更新)
   if (timer) clearInterval(timer);
   timer = window.setInterval(() => {
     timeLeft.value = Number((timeLeft.value - 0.1).toFixed(1));
@@ -100,6 +164,7 @@ function startQuestion() {
     }
   }, 100);
 }
+
 
 function handleTimeout() {
   sound.playTimeout();
@@ -218,9 +283,20 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 15秒动态数字倒计时 -->
+        <!-- 两阶段动态状态指示：扫查中 vs 15s极速答题倒计时 (核心需求) -->
         <div class="flex items-center space-x-2">
+          <!-- 阶段一：视频扫查中 -->
           <div
+            v-if="isScanningPhase"
+            class="px-3.5 py-1.5 rounded-xl border border-cyan-500/50 bg-cyan-950/80 text-cyan-300 flex items-center space-x-2 text-xs font-semibold shadow-md"
+          >
+            <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span>切面扫查中 (播放结束开启 15s 倒计时)</span>
+          </div>
+
+          <!-- 阶段二：15秒极速答题倒计时 -->
+          <div
+            v-else
             :class="[
               'px-4 py-1.5 rounded-xl border flex items-center space-x-2 font-mono font-black text-lg transition-all',
               isTimeCritical
@@ -232,6 +308,7 @@ onUnmounted(() => {
             <span>{{ timeLeft.toFixed(1) }}s</span>
           </div>
         </div>
+
 
         <!-- 监考微缩视频窗 -->
         <div class="flex items-center space-x-2">
@@ -284,11 +361,10 @@ onUnmounted(() => {
           playsinline
           muted
           autoplay
-          @ended="isVideoPlaying = false"
+          @ended="handleVideoEnded"
           class="w-full h-full object-contain cursor-pointer"
-          @click="videoEl?.paused ? videoEl?.play() : videoEl?.pause()"
+          @click="togglePlayPause"
         ></video>
-
 
         <!-- 否则渲染专业级超声动态扫查模拟声束 -->
         <div v-else class="absolute inset-0 flex items-center justify-center opacity-90">
@@ -312,7 +388,6 @@ onUnmounted(() => {
           </svg>
         </div>
 
-
         <!-- 题目切面名称与问题 -->
         <div class="relative z-10 text-center px-6 pointer-events-none">
           <div class="inline-flex items-center space-x-1 px-3 py-0.5 rounded-full bg-slate-900/90 border border-cyan-500/40 text-cyan-300 text-xs font-mono mb-2 backdrop-blur-md">
@@ -324,19 +399,79 @@ onUnmounted(() => {
           </h3>
         </div>
 
-        <!-- 视频单次播放状态角标 -->
+        <!-- 视频状态角标 -->
         <div class="absolute top-3 left-3 flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-black/70 border border-slate-700 text-xs text-slate-300 backdrop-blur-md z-30">
           <Video class="w-3.5 h-3.5 text-cyan-400" />
-          <span v-if="isVideoPlaying" class="text-cyan-400 font-bold flex items-center">
+          <span v-if="isScanningPhase" class="text-cyan-400 font-bold flex items-center">
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping mr-1"></span>
-            视频动态扫查中 (限播1次)...
+            {{ isPaused ? '切面暂停辨识中' : '真实超声扫查播放中 (限播1次)...' }}
           </span>
-          <span v-else class="text-slate-400">
-            视频播放已结束 (已锁定)
+          <span v-else class="text-amber-400 font-bold flex items-center">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 mr-1"></span>
+            扫查结束 · 15s极速答题中！
           </span>
         </div>
       </div>
+
+      <!-- 专业超声精细化微调控制栏 (慢放 / 暂停 / 单帧微步进 / 提前答题) -->
+      <div class="px-4 py-2.5 bg-slate-900/90 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div class="flex items-center space-x-2">
+          <!-- 暂停/继续 -->
+          <button
+            type="button"
+            @click="togglePlayPause"
+            :class="[
+              'px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center space-x-1 transition-all',
+              isPaused 
+                ? 'bg-amber-950 border-amber-500 text-amber-300' 
+                : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-cyan-400'
+            ]"
+          >
+            <Play v-if="isPaused" class="w-3.5 h-3.5 fill-current" />
+            <Pause v-else class="w-3.5 h-3.5" />
+            <span>{{ isPaused ? '继续播放' : '暂停' }}</span>
+          </button>
+
+          <!-- 0.5X 慢放切换 -->
+          <button
+            type="button"
+            @click="toggleSlowMotion"
+            :class="[
+              'px-2.5 py-1 rounded-lg border text-xs font-mono font-bold flex items-center space-x-1 transition-all',
+              playbackRate === 0.5
+                ? 'bg-cyan-950 border-cyan-400 text-cyan-300 glow-cyan'
+                : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600'
+            ]"
+          >
+            <Gauge class="w-3.5 h-3.5 text-cyan-400" />
+            <span>{{ playbackRate === 0.5 ? '0.5X 慢放中' : '1.0X 常速' }}</span>
+          </button>
+
+          <!-- 单帧步进 (+0.15s) -->
+          <button
+            type="button"
+            @click="stepFrameForward"
+            class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white flex items-center space-x-1 transition-all"
+            title="逐帧微调 (+0.15s)"
+          >
+            <StepForward class="w-3.5 h-3.5" />
+            <span>单帧步进</span>
+          </button>
+        </div>
+
+        <!-- 提前结束扫查直接开启 15s 答题 -->
+        <button
+          v-if="isScanningPhase"
+          type="button"
+          @click="handleVideoEnded"
+          class="px-3 py-1 rounded-lg bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-400/50 text-cyan-300 font-bold flex items-center space-x-1 transition-all active:scale-95"
+        >
+          <Zap class="w-3.5 h-3.5 text-cyan-400" />
+          <span>辨识完毕 · 开启15s极速秒答 »</span>
+        </button>
+      </div>
     </div>
+
 
     <!-- 纯文本秒答输入栏 (极致聚焦) -->
     <div class="p-4 rounded-2xl bg-slate-900/95 border border-cyan-500/40 glass-panel shadow-2xl">
