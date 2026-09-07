@@ -327,6 +327,19 @@ onUnmounted(() => {
 
     <!-- 核心超声视频主视窗 (带 HUD 边框 + 物理深度标尺 + 多普勒色阶 + 动态防盗水印) -->
     <div v-if="currentQuestion" class="relative rounded-3xl overflow-hidden border-2 border-cyan-400/50 bg-slate-950 shadow-2xl shadow-cyan-900/60 mb-4 group">
+      <!-- 题目切面名称与诊断问题（置顶独立横幅，确保超声声束与解剖结构不被遮挡） -->
+      <div class="px-4 py-2.5 bg-slate-900/95 border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 z-30 relative backdrop-blur-md">
+        <div class="flex items-center space-x-2.5 flex-1 min-w-0">
+          <div class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-cyan-950/90 border border-cyan-500/40 text-cyan-300 text-xs font-mono shrink-0">
+            <Activity class="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span>{{ currentQuestion.viewType }}</span>
+          </div>
+          <h3 class="text-xs sm:text-sm font-bold text-slate-100 truncate">
+            {{ currentQuestion.title }}
+          </h3>
+        </div>
+      </div>
+
       <!-- 动态防盗录水印浮层 -->
       <VideoWatermark
         :userName="userProfile.name"
@@ -334,7 +347,7 @@ onUnmounted(() => {
       />
 
       <!-- 1. 左侧：超声物理深度标尺 (0 ~ 15cm 刻度) -->
-      <div class="absolute left-2 top-8 bottom-8 flex flex-col justify-between items-center text-[9px] font-mono text-cyan-400/80 z-20 pointer-events-none select-none">
+      <div class="absolute left-2 top-14 bottom-8 flex flex-col justify-between items-center text-[9px] font-mono text-cyan-400/80 z-20 pointer-events-none select-none">
         <span class="flex items-center space-x-1"><span>0</span><span class="w-1.5 h-[1px] bg-cyan-400"></span></span>
         <span class="flex items-center space-x-1"><span>3</span><span class="w-1.5 h-[1px] bg-cyan-400"></span></span>
         <span class="flex items-center space-x-1"><span>6</span><span class="w-1.5 h-[1px] bg-cyan-400"></span></span>
@@ -344,7 +357,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 2. 右侧：彩色多普勒血流指示标尺 (Color Doppler Velocity Bar) -->
-      <div class="absolute right-3 top-10 flex flex-col items-center z-20 pointer-events-none select-none bg-black/60 p-1 rounded-md border border-slate-700/60 backdrop-blur-sm">
+      <div class="absolute right-3 top-16 flex flex-col items-center z-20 pointer-events-none select-none bg-black/60 p-1 rounded-md border border-slate-700/60 backdrop-blur-sm">
         <span class="text-[8px] font-mono text-red-400 font-bold">+60</span>
         <div class="w-2.5 h-16 rounded-sm bg-gradient-to-b from-red-500 via-amber-400 via-50% to-blue-500 my-0.5 shadow-sm"></div>
         <span class="text-[8px] font-mono text-blue-400 font-bold">-60</span>
@@ -386,17 +399,6 @@ onUnmounted(() => {
           <svg class="w-64 h-5 text-emerald-400 animate-pulse" viewBox="0 0 200 20" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M0 10 L40 10 L45 3 L50 18 L55 2 L60 14 L65 10 L100 10 L140 10 L145 3 L150 18 L155 2 L160 14 L165 10 L200 10" />
           </svg>
-        </div>
-
-        <!-- 题目切面名称与问题 -->
-        <div class="relative z-10 text-center px-6 pointer-events-none">
-          <div class="inline-flex items-center space-x-1 px-3 py-0.5 rounded-full bg-slate-900/90 border border-cyan-500/40 text-cyan-300 text-xs font-mono mb-2 backdrop-blur-md">
-            <Activity class="w-3 h-3 text-cyan-400 animate-pulse" />
-            <span>{{ currentQuestion.viewType }}</span>
-          </div>
-          <h3 class="text-base sm:text-xl font-black text-slate-100 max-w-xl mx-auto leading-snug drop-shadow-md">
-            {{ currentQuestion.title }}
-          </h3>
         </div>
 
         <!-- 视频状态角标 -->
